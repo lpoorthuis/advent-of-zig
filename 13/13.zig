@@ -5,13 +5,13 @@ const debug = std.debug;
 const ArrayList = std.ArrayList;
 
 const Point = struct {
-    x: i32,
-    y: i32,
+    x: i64,
+    y: i64,
 };
 
 const TriggerResult = struct {
-    aPresses: i32,
-    bPresses: i32,
+    aPresses: i64,
+    bPresses: i64,
 };
 
 const Machine = struct {
@@ -37,17 +37,17 @@ fn parsePoint(line: []const u8) !Point {
     if (y_str[0] == '+') y_str = y_str[1..];
 
     // Parse the numbers
-    const x = try std.fmt.parseInt(i32, x_str, 10);
-    const y = try std.fmt.parseInt(i32, y_str, 10);
+    const x = try std.fmt.parseInt(i64, x_str, 10);
+    const y = try std.fmt.parseInt(i64, y_str, 10);
 
     return Point{ .x = x, .y = y };
 }
 
 fn pressedButtons(pointA: Point, pointB: Point, target: Point) ?TriggerResult {
-    const aPresses = std.math.divExact(i32, target.x * pointB.y - target.y * pointB.x, pointA.x * pointB.y - pointA.y * pointB.x) catch {
+    const aPresses = std.math.divExact(i64, target.x * pointB.y - target.y * pointB.x, pointA.x * pointB.y - pointA.y * pointB.x) catch {
         return null;
     };
-    const bPresses = std.math.divExact(i32, target.x - pointA.x * aPresses, pointB.x) catch {
+    const bPresses = std.math.divExact(i64, target.x - pointA.x * aPresses, pointB.x) catch {
         return null;
     };
 
@@ -95,7 +95,7 @@ pub fn main() !void {
         line_count += 1;
     }
 
-    var tokens: i32 = 0;
+    var tokens: i64 = 0;
     for (machines.items) |machine| {
         const result = pressedButtons(machine.pointA, machine.pointB, machine.target);
         if (result != null) {
@@ -103,4 +103,13 @@ pub fn main() !void {
         }
     }
     std.debug.print("Tokens: {d}\n", .{tokens});
+
+    var tokenInflation: i64 = 0;
+    for (machines.items) |machine| {
+        const result = pressedButtons(machine.pointA, machine.pointB, Point{ .x = machine.target.x + 10000000000000, .y = machine.target.y + 10000000000000 });
+        if (result != null) {
+            tokenInflation += 3 * result.?.aPresses + result.?.bPresses;
+        }
+    }
+    std.debug.print("TokenInflation: {d}\n", .{tokenInflation});
 }
