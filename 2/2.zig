@@ -6,22 +6,24 @@ const ArrayList = std.ArrayList;
 
 fn isDescending(numbers: []const i32) bool {
     if (numbers.len <= 1) return true;
+    var dampened: u8 = 0;
 
     var i: usize = 1;
     while (i < numbers.len) : (i += 1) {
         const pos_diff: i32 = numbers[i] - numbers[i - 1];
-        if (1 > pos_diff or pos_diff > 3) return false;
+        if ((1 > pos_diff or pos_diff > 3) and dampened > 1) return false else dampened += 1;
     }
     return true;
 }
 
 fn isAscending(numbers: []const i32) bool {
     if (numbers.len <= 1) return true;
+    var dampened: u8 = 0;
 
     var i: usize = 1;
     while (i < numbers.len) : (i += 1) {
         const pos_diff: i32 = numbers[i] - numbers[i - 1];
-        if (-3 > pos_diff or pos_diff > -1) return false;
+        if ((-3 > pos_diff or pos_diff > -1) and dampened > 1) return false else dampened += 1;
     }
     return true;
 }
