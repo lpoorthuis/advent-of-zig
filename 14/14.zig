@@ -191,7 +191,7 @@ pub fn main() !void {
     std.debug.print("Initial state:\n", .{});
     grid.print();
 
-    for (0..100) |seconds| {
+    for (0..6876) |seconds| {
         moveRobots(robots.items, &grid);
         std.debug.print("\nAfter {} seconds:\n", .{seconds + 1});
         grid.print();
