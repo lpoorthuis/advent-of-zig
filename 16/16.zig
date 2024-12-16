@@ -109,20 +109,97 @@ fn findNode(nodes: []const Node, pos: Coord, dir: Direction) ?usize {
     return null;
 }
 
-fn solveMazeCost(maze: anytype, start: Coord, end: Coord, allocator: std.mem.Allocator) !u32 {
+const Path = struct {
+    coords: []Coord,
+    cost: usize,
+
+    pub fn pretty_print(self: Path) void {
+        std.debug.print("Path{{cost: {d}, coords: [", .{self.cost});
+        for (self.coords) |coord| {
+            std.debug.print("({d}, {d}), ", .{ coord.x, coord.y });
+        }
+        std.debug.print("]}}\n", .{});
+    }
+};
+
+const PathList = struct {
+    paths: std.ArrayList(Path),
+    min_cost: ?usize,
+
+    pub fn init(allocator: std.mem.Allocator) PathList {
+        return .{
+            .paths = std.ArrayList(Path).init(allocator),
+            .min_cost = null,
+        };
+    }
+
+    pub fn deinit(self: *PathList) void {
+        for (self.paths.items) |path| {
+            self.paths.allocator.free(path.coords);
+        }
+        self.paths.deinit();
+    }
+
+    pub fn addPath(self: *PathList, coords: []Coord, cost: usize) !void {
+        // If this is the first path or matches current min cost
+        if (self.min_cost == null or cost == self.min_cost.?) {
+            try self.paths.append(.{
+                .coords = coords,
+                .cost = cost,
+            });
+            self.min_cost = cost;
+        } else if (cost < self.min_cost.?) {
+            // If this is a better path, clear existing paths
+            self.clearPaths();
+            try self.paths.append(.{
+                .coords = coords,
+                .cost = cost,
+            });
+            self.min_cost = cost;
+        } else {
+            // Cost is higher than min, don't keep this path
+            self.paths.allocator.free(coords);
+        }
+    }
+
+    fn clearPaths(self: *PathList) void {
+        for (self.paths.items) |path| {
+            self.paths.allocator.free(path.coords);
+        }
+        self.paths.clearRetainingCapacity();
+    }
+};
+
+fn reconstructPath(closed_list: []const Node, end_node: Node, allocator: std.mem.Allocator) ![]Coord {
+    var path = std.ArrayList(Coord).init(allocator);
+    errdefer path.deinit();
+
+    var node_idx: ?usize = closed_list.len - 1;
+    var current_node = end_node;
+
+    try path.insert(0, current_node.coord);
+    while (node_idx) |idx| : (node_idx = current_node.parent_idx) {
+        current_node = closed_list[idx];
+        try path.insert(0, current_node.coord);
+    }
+
+    return path.toOwnedSlice();
+}
+
+fn solveMazePaths(maze: anytype, start: Coord, end: Coord, allocator: std.mem.Allocator) !PathList {
     var open_list = std.ArrayList(Node).init(allocator);
     defer open_list.deinit();
 
     var closed_list = std.ArrayList(Node).init(allocator);
     defer closed_list.deinit();
 
-    var final_path = std.ArrayList(Coord).init(allocator);
-    defer final_path.deinit();
+    var path_list = PathList.init(allocator);
+    defer path_list.deinit();
 
     try open_list.append(Node{ .coord = start, .path_cost = 0, .heuristic_distance = INF, .parent_idx = null, .direction = Direction.Right });
 
     while (open_list.items.len > 0) {
-        const current_coord = findNodeWithLowestF(open_list.items) orelse return 0;
+        const current_coord = findNodeWithLowestF(open_list.items) orelse break;
         const current_node = open_list.items[current_coord];
 
         // Remove current node by moving last item to its position
@@ -131,27 +208,21 @@ fn solveMazeCost(maze: anytype, start: Coord, end: Coord, allocator: std.mem.All
         }
         _ = open_list.pop();
 
-        if (current_node.coord.equals(end)) {
-            var node_idx: ?usize = closed_list.items.len;
-            try closed_list.append(current_node);
-
-            // Reconstruct path
-            var tiles: u32 = 0;
-            while (node_idx) |idx| {
-                tiles += 1;
-                const node = closed_list.items[idx];
-                try final_path.insert(0, node.coord);
-                node_idx = node.parent_idx;
-                node.pretty_print();
-            }
-            std.debug.print("Total Tiles: {d}\n", .{tiles});
-
-            // Return both path and final cost
-            return @intCast(current_node.path_cost);
-        }
-
         const current_closed_idx = closed_list.items.len;
         try closed_list.append(current_node);
+
+        if (current_node.coord.equals(end)) {
+            const path = try reconstructPath(closed_list.items, current_node, allocator);
+            try path_list.addPath(path, current_node.path_cost);
+            continue;
+        }
+
+        // skip if path gets to expensive
+        if (path_list.min_cost) |min_cost| {
+            if (current_node.path_cost > min_cost) {
+                continue;
+            }
+        }
 
         for (directions) |direction| {
             const new_x = @as(i32, @intCast(current_node.coord.x)) + direction[0];
@@ -202,7 +273,10 @@ fn solveMazeCost(maze: anytype, start: Coord, end: Coord, allocator: std.mem.All
         }
     }
 
-    return 0;
+    for (path_list.paths.items) |path| {
+        path.pretty_print();
+    }
+    return path_list;
 }
 
 pub fn main() !void {
@@ -229,7 +303,7 @@ pub fn main() !void {
         allocator.free(maze_map);
     }
 
-    //print2DArray(maze_map);
+    print2DArray(maze_map);
 
     const start_position = try findCharCoord(maze_map, 'S');
     const end_position = try findCharCoord(maze_map, 'E');
@@ -237,9 +311,7 @@ pub fn main() !void {
     std.debug.print("start_position: {d} {d}\n", .{ start_position.x, start_position.y });
     std.debug.print("end_position: {d} {d}\n", .{ end_position.x, end_position.y });
 
-    const result = try solveMazeCost(maze_map, start_position, end_position, allocator);
+    const result = try solveMazePaths(maze_map, start_position, end_position, allocator);
 
-    std.debug.print("score {d}    {d}ms\n", .{ result, timer.lap() / std.time.ns_per_ms });
-
-    //std.debug.print("GPS sum2 {d}    {d}ms\n", .{ result, timer.lap() / std.time.ns_per_ms });
+    std.debug.print("score {d}    {d}ms\n", .{ result.min_cost.?, timer.lap() / std.time.ns_per_ms });
 }
