@@ -1,317 +1,284 @@
 const std = @import("std");
+const print = std.debug.print;
+const ArrayList = std.ArrayList;
+const AutoHashMap = std.AutoHashMap;
 
-const input_file_name = "input2.txt";
+const input_file_name = "input.txt";
 const input_data = @embedFile(input_file_name);
 
-const INF = 999999999;
-
-const directions = [_][2]i32{
-    [_]i32{ 1, 0 }, // right
-    [_]i32{ 0, 1 }, // down
-    [_]i32{ -1, 0 }, // left
-    [_]i32{ 0, -1 }, // up
-};
-
 const Direction = enum {
-    Up,
-    Down,
-    Left,
-    Right,
+    right,
+    up,
+    left,
+    down,
+
+    fn turnCost(from: Direction, to: Direction) u32 {
+        if (from == to) return 0;
+        return 1000;
+    }
+
+    fn toString(self: Direction) []const u8 {
+        return switch (self) {
+            .right => "→",
+            .up => "↑",
+            .left => "←",
+            .down => "↓",
+        };
+    }
 };
 
-const Coord = struct {
+const Position = struct {
     x: usize,
     y: usize,
 
-    pub fn manhattan_distance(self: Coord, other: Coord) usize {
-        const dx = if (self.x > other.x) self.x - other.x else other.x - self.x;
-        const dy = if (self.y > other.y) self.y - other.y else other.y - self.y;
-        return dx + dy;
-    }
-
-    pub fn equals(self: Coord, other: Coord) bool {
+    fn eql(self: Position, other: Position) bool {
         return self.x == other.x and self.y == other.y;
     }
 };
 
-const Node = struct {
-    coord: Coord,
-    path_cost: usize,
-    heuristic_distance: usize,
-    direction: Direction,
-    parent_idx: ?usize,
-
-    pub fn f_score(self: Node) usize {
-        return self.path_cost + self.heuristic_distance;
-    }
-
-    pub fn pretty_print(self: Node) void {
-        std.debug.print("Node{{coord: {d} {d}, path_cost: {d}, heuristic_distance: {d}, direction: {s}}}\n", .{ self.coord.x, self.coord.y, self.path_cost, self.heuristic_distance, @tagName(self.direction) });
-    }
+const State = struct {
+    pos: Position,
+    dir: Direction,
 };
-
-fn print2DArray(map: anytype) void {
-    for (map) |line| {
-        for (line) |cell| {
-            std.debug.print("{c}", .{cell});
-        }
-        std.debug.print("\n", .{});
-    }
-}
-
-fn findCharCoord(map: anytype, target: u8) !Coord {
-    for (map, 0..) |line, y| {
-        for (line, 0..) |cell, x| {
-            if (cell == target) {
-                return Coord{ .x = @intCast(x), .y = @intCast(y) };
-            }
-        }
-    }
-    unreachable;
-}
-
-fn findNodeWithLowestF(nodes: []const Node) ?usize {
-    if (nodes.len == 0) return null;
-    var lowest_idx: usize = 0;
-    var lowest_f = nodes[0].f_score();
-
-    for (nodes, 0..) |node, i| {
-        const f = node.f_score();
-        if (f < lowest_f) {
-            lowest_f = f;
-            lowest_idx = i;
-        }
-    }
-    return lowest_idx;
-}
-
-fn getDirectionFromMove(from: Coord, to: Coord) Direction {
-    if (to.x > from.x) return .Right;
-    if (to.x < from.x) return .Left;
-    if (to.y > from.y) return .Down;
-    return .Up;
-}
-
-fn getMovementCost(current_dir: Direction, new_dir: Direction) usize {
-    const base_cost: usize = 1;
-    if (current_dir != new_dir) {
-        return base_cost + 1000; // Direction change penalty
-    }
-    return base_cost;
-}
-
-fn findNode(nodes: []const Node, pos: Coord, dir: Direction) ?usize {
-    for (nodes, 0..) |node, i| {
-        if (node.coord.x == pos.x and node.coord.y == pos.y and node.direction == dir) {
-            return i;
-        }
-    }
-    return null;
-}
 
 const Path = struct {
-    coords: []Coord,
-    cost: usize,
+    positions: ArrayList(Position),
+    cost: u32,
 
-    pub fn pretty_print(self: Path) void {
-        std.debug.print("Path{{cost: {d}, coords: [", .{self.cost});
-        for (self.coords) |coord| {
-            std.debug.print("({d}, {d}), ", .{ coord.x, coord.y });
-        }
-        std.debug.print("]}}\n", .{});
-    }
-};
-
-const PathList = struct {
-    paths: std.ArrayList(Path),
-    min_cost: ?usize,
-
-    pub fn init(allocator: std.mem.Allocator) PathList {
+    fn init(allocator: std.mem.Allocator) Path {
         return .{
-            .paths = std.ArrayList(Path).init(allocator),
-            .min_cost = null,
+            .positions = ArrayList(Position).init(allocator),
+            .cost = 0,
         };
     }
 
-    pub fn deinit(self: *PathList) void {
-        for (self.paths.items) |path| {
-            self.paths.allocator.free(path.coords);
-        }
-        self.paths.deinit();
-    }
-
-    pub fn addPath(self: *PathList, coords: []Coord, cost: usize) !void {
-        // If this is the first path or matches current min cost
-        if (self.min_cost == null or cost == self.min_cost.?) {
-            try self.paths.append(.{
-                .coords = coords,
-                .cost = cost,
-            });
-            self.min_cost = cost;
-        } else if (cost < self.min_cost.?) {
-            // If this is a better path, clear existing paths
-            self.clearPaths();
-            try self.paths.append(.{
-                .coords = coords,
-                .cost = cost,
-            });
-            self.min_cost = cost;
-        } else {
-            // Cost is higher than min, don't keep this path
-            self.paths.allocator.free(coords);
-        }
-    }
-
-    fn clearPaths(self: *PathList) void {
-        for (self.paths.items) |path| {
-            self.paths.allocator.free(path.coords);
-        }
-        self.paths.clearRetainingCapacity();
+    fn deinit(self: *Path) void {
+        self.positions.deinit();
     }
 };
 
-fn reconstructPath(closed_list: []const Node, end_node: Node, allocator: std.mem.Allocator) ![]Coord {
-    var path = std.ArrayList(Coord).init(allocator);
-    errdefer path.deinit();
+const QueueItem = struct {
+    state: State,
+    cost: u32,
+    path: ArrayList(Position),
 
-    var node_idx: ?usize = closed_list.len - 1;
-    var current_node = end_node;
+    fn printDebug(self: QueueItem, map: []const []const u8, writer: anytype) !void {
+        try writer.print("\n=== Queue Item Debug Info ===\n", .{});
+        try writer.print("Cost: {}\n", .{self.cost});
+        try writer.print("Current Position: ({}, {})\n", .{ self.state.pos.x, self.state.pos.y });
+        try writer.print("Direction: {} ({})\n", .{ self.state.dir, self.state.dir.toString() });
 
-    try path.insert(0, current_node.coord);
-    while (node_idx) |idx| : (node_idx = current_node.parent_idx) {
-        current_node = closed_list[idx];
-        try path.insert(0, current_node.coord);
+        try writer.print("Path Length: {}\n", .{self.path.items.len});
+        try writer.print("Path: ", .{});
+        for (self.path.items) |pos| {
+            try writer.print("({},{}) ", .{ pos.x, pos.y });
+        }
+        try writer.print("\n", .{});
+
+        try writer.print("\nMap Visualization:\n", .{});
+
+        var path_positions = AutoHashMap(Position, void).init(std.heap.page_allocator);
+        defer path_positions.deinit();
+
+        for (self.path.items) |pos| {
+            path_positions.put(pos, {}) catch continue;
+        }
+
+        for (map, 0..) |row, y| {
+            for (row, 0..) |cell, x| {
+                const pos = Position{ .x = x, .y = y };
+                const is_current = pos.eql(self.state.pos);
+                const is_in_path = path_positions.contains(pos);
+
+                if (is_current) {
+                    try writer.print("{s}", .{self.state.dir.toString()});
+                } else if (is_in_path) {
+                    try writer.print("•", .{});
+                } else {
+                    try writer.print("{c}", .{cell});
+                }
+            }
+            try writer.print("\n", .{});
+        }
+        try writer.print("\n=========================\n", .{});
+    }
+};
+
+const VisitedKey = struct {
+    pos: Position,
+    dir: Direction,
+};
+
+const VisitedInfo = struct {
+    cost: u32,
+    keep_exploring: bool,
+};
+
+pub fn findPaths(
+    allocator: std.mem.Allocator,
+    map: []const []const u8,
+) !void {
+    var start_pos: Position = undefined;
+    var end_pos: Position = undefined;
+
+    for (map, 0..) |row, y| {
+        for (row, 0..) |cell, x| {
+            if (cell == 'S') {
+                start_pos = .{ .x = x, .y = y };
+            } else if (cell == 'E') {
+                end_pos = .{ .x = x, .y = y };
+            }
+        }
     }
 
-    return path.toOwnedSlice();
-}
+    var queue = ArrayList(QueueItem).init(allocator);
+    defer queue.deinit();
 
-fn solveMazePaths(maze: anytype, start: Coord, end: Coord, allocator: std.mem.Allocator) !PathList {
-    var open_list = std.ArrayList(Node).init(allocator);
-    defer open_list.deinit();
+    var visited = AutoHashMap(VisitedKey, VisitedInfo).init(allocator);
+    defer visited.deinit();
 
-    var closed_list = std.ArrayList(Node).init(allocator);
-    defer closed_list.deinit();
-
-    var path_list = PathList.init(allocator);
-    defer path_list.deinit();
-
-    try open_list.append(Node{ .coord = start, .path_cost = 0, .heuristic_distance = INF, .parent_idx = null, .direction = Direction.Right });
-
-    while (open_list.items.len > 0) {
-        const current_coord = findNodeWithLowestF(open_list.items) orelse break;
-        const current_node = open_list.items[current_coord];
-
-        // Remove current node by moving last item to its position
-        if (current_coord < open_list.items.len - 1) {
-            open_list.items[current_coord] = open_list.items[open_list.items.len - 1];
+    var optimal_paths = ArrayList(Path).init(allocator);
+    defer {
+        for (optimal_paths.items) |*path| {
+            path.deinit();
         }
-        _ = open_list.pop();
+        optimal_paths.deinit();
+    }
 
-        const current_closed_idx = closed_list.items.len;
-        try closed_list.append(current_node);
+    var initial_path = ArrayList(Position).init(allocator);
+    try initial_path.append(start_pos);
 
-        if (current_node.coord.equals(end)) {
-            const path = try reconstructPath(closed_list.items, current_node, allocator);
-            try path_list.addPath(path, current_node.path_cost);
+    try queue.append(.{
+        .state = .{
+            .pos = start_pos,
+            .dir = .right,
+        },
+        .cost = 0,
+        .path = initial_path,
+    });
+
+    var min_cost: ?u32 = null;
+
+    while (queue.items.len > 0) {
+        var min_idx: usize = 0;
+        for (queue.items, 0..) |item, i| {
+            if (item.cost < queue.items[min_idx].cost) {
+                min_idx = i;
+            }
+        }
+        const current = queue.swapRemove(min_idx);
+
+        if (min_cost != null and current.cost > min_cost.?) {
+            current.path.deinit();
             continue;
         }
 
-        // skip if path gets to expensive
-        if (path_list.min_cost) |min_cost| {
-            if (current_node.path_cost > min_cost) {
-                continue;
+        if (current.state.pos.x == end_pos.x and current.state.pos.y == end_pos.y) {
+            if (min_cost == null or current.cost <= min_cost.?) {
+                min_cost = current.cost;
+                var new_path = Path.init(allocator);
+                new_path.cost = current.cost;
+                try new_path.positions.appendSlice(current.path.items);
+                try optimal_paths.append(new_path);
             }
+            current.path.deinit();
+            continue;
         }
 
-        for (directions) |direction| {
-            const new_x = @as(i32, @intCast(current_node.coord.x)) + direction[0];
-            const new_y = @as(i32, @intCast(current_node.coord.y)) + direction[1];
+        const dirs = [_]Direction{ .right, .up, .left, .down };
+        for (dirs) |new_dir| {
+            const turn_cost = Direction.turnCost(current.state.dir, new_dir);
+            var new_pos = current.state.pos;
 
-            if (new_x < 0 or new_y < 0 or new_x >= maze[0].len or new_y >= maze.len) {
-                continue;
+            switch (new_dir) {
+                .right => new_pos.x += 1,
+                .left => new_pos.x -= 1,
+                .up => new_pos.y -= 1,
+                .down => new_pos.y += 1,
             }
 
-            const new_pos = Coord{
-                .x = @intCast(new_x),
-                .y = @intCast(new_y),
+            if (new_pos.y >= map.len or new_pos.x >= map[0].len) continue;
+            if (map[new_pos.y][new_pos.x] == '#') continue;
+
+            const new_state = State{
+                .pos = new_pos,
+                .dir = new_dir,
             };
 
-            //std.debug.print("{c}\n", .{maze[new_pos.x][new_pos.y]});
-            if (maze[new_pos.y][new_pos.x] == '#') {
-                continue;
+            const new_cost = current.cost + turn_cost + 1;
+
+            const visited_key = VisitedKey{
+                .pos = new_pos,
+                .dir = new_dir,
+            };
+
+            if (visited.get(visited_key)) |info| {
+                if (new_cost > info.cost) continue;
+                if (new_cost == info.cost and !info.keep_exploring) continue;
             }
 
-            const new_direction = getDirectionFromMove(current_node.coord, new_pos);
+            try visited.put(visited_key, .{
+                .cost = new_cost,
+                .keep_exploring = true,
+            });
 
-            // Skip if in closed list with same direction
-            if (findNode(closed_list.items, new_pos, new_direction) != null) {
-                continue;
-            }
+            var new_path = ArrayList(Position).init(allocator);
+            try new_path.appendSlice(current.path.items);
+            try new_path.append(new_pos);
 
-            const movement_cost = getMovementCost(current_node.direction, new_direction);
-            const path_cost = current_node.path_cost + movement_cost;
-            const heuristic_distance = new_pos.manhattan_distance(end);
+            try queue.append(.{
+                .state = new_state,
+                .cost = new_cost,
+                .path = new_path,
+            });
+        }
+        current.path.deinit();
+    }
 
-            // Check if already in open list
-            if (findNode(open_list.items, new_pos, new_direction)) |existing_idx| {
-                // Update if new path is better
-                if (path_cost < open_list.items[existing_idx].path_cost) {
-                    open_list.items[existing_idx].path_cost = path_cost;
-                    open_list.items[existing_idx].parent_idx = current_closed_idx;
-                }
-            } else {
-                // Add to open list
-                try open_list.append(Node{
-                    .coord = new_pos,
-                    .path_cost = path_cost,
-                    .heuristic_distance = heuristic_distance,
-                    .parent_idx = current_closed_idx,
-                    .direction = new_direction,
-                });
+    var unique_tiles = AutoHashMap(Position, void).init(allocator);
+    defer unique_tiles.deinit();
+
+    if (min_cost) |cost| {
+        print("Found {} optimal paths with cost: {}\n", .{ optimal_paths.items.len, cost });
+
+        for (optimal_paths.items, 0..) |path, i| {
+            print("\nPath {}:\n", .{i + 1});
+            for (path.positions.items) |pos| {
+                try unique_tiles.put(pos, {});
+                print("({}, {})->", .{ pos.x, pos.y });
             }
         }
-    }
 
-    for (path_list.paths.items) |path| {
-        path.pretty_print();
+        print("\n\nTotal unique tiles visited across all optimal paths: {}\n", .{unique_tiles.count()});
+    } else {
+        print("No path found!\n", .{});
     }
-    return path_list;
 }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     var timer = try std.time.Timer.start();
 
     var lines = std.mem.tokenizeSequence(u8, input_data, "\n");
-
-    var maze = std.ArrayList([]u8).init(allocator);
+    var maze = std.ArrayList([]const u8).init(allocator);
     defer maze.deinit();
+
     while (lines.next()) |line| {
         const mut: []u8 = try allocator.alloc(u8, line.len);
         @memcpy(mut, line);
         try maze.append(mut);
     }
-    const maze_map = try maze.toOwnedSlice();
+    const map = try maze.toOwnedSlice();
     defer {
-        for (maze_map) |line| {
-            allocator.free(line);
+        for (map) |row| {
+            allocator.free(row);
         }
-        allocator.free(maze_map);
+        allocator.free(map);
     }
 
-    print2DArray(maze_map);
-
-    const start_position = try findCharCoord(maze_map, 'S');
-    const end_position = try findCharCoord(maze_map, 'E');
-
-    std.debug.print("start_position: {d} {d}\n", .{ start_position.x, start_position.y });
-    std.debug.print("end_position: {d} {d}\n", .{ end_position.x, end_position.y });
-
-    const result = try solveMazePaths(maze_map, start_position, end_position, allocator);
-
-    std.debug.print("score {d}    {d}ms\n", .{ result.min_cost.?, timer.lap() / std.time.ns_per_ms });
+    try findPaths(allocator, map);
+    std.debug.print("solving took    {d}ms\n", .{timer.lap() / std.time.ns_per_ms});
 }
