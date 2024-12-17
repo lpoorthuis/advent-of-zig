@@ -102,13 +102,14 @@ const Computer = struct {
         try self.run_opcode(literal_operand, combo_operand);
     }
 
-    fn run_computer(self: *Computer) !void {
+    fn run_computer(self: *Computer) ![]u8 {
         while (self.instruction_pointer < self.opcodes.len) {
             //std.debug.print("instruction_pointer: {d}\n", .{self.instruction_pointer});
             try self.run();
             //std.debug.print("{any}\n", .{self});
         }
         //std.debug.print("\nfin\n\n", .{});
+        return self.result.toOwnedSlice();
     }
 };
 
@@ -173,32 +174,33 @@ pub fn main() !void {
     const computer_clean = try parse_computer(input_data);
     var computer = computer_clean;
     //std.debug.print("{any}\n", .{computer});
-    try computer.run_computer();
+    const solution = try computer.run_computer();
     //std.debug.print("{any}\n", .{computer});
-    const solution = try computer.solution();
     std.debug.print("part1 {s}   {d}ms\n", .{ solution, timer.lap() / std.time.ns_per_ms });
 
     //const target = "2,4,1,1,7,5,1,5,4,2,5,5,0,3,3,0";
-    const target = "0,3,5,4,3,0";
+    //const target = "0,3,5,4,3,0";
+    const target: [6]u8 = [_]u8{ 0, 3, 5, 4, 3, 0 };
     computer = computer_clean;
     var moving_a: u32 = computer.A;
-    while (true) {
-        var soli: []u8 = undefined;
-        while (computer.instruction_pointer < computer.opcodes.len) {
-            try computer.run();
-            //soli = try computer.solution();
-            //if (!std.mem.eql(u8, soli, target[0..soli.len])) {
-            //    continue :outer;
-            //}
-        }
+    var target_index = target.len;
+    moving_a = 1;
+    computer = computer_clean;
+    computer.A = moving_a;
+    std.debug.print("{any}\n", .{target});
+    while (target_index > 0) {
+        target_index -= 1;
 
-        soli = try computer.solution();
-        if (std.mem.eql(u8, soli, target)) {
-            break;
-        } else {
+        moving_a <<= 3;
+        std.debug.print("target_index: {d} a: {d}\n", .{ target_index, moving_a });
+
+        var soli = try computer.run_computer();
+        while (!std.mem.eql(u8, soli, target[target_index..])) {
+            //std.debug.print("soli: {any} tar: {any} {d}\n", .{ soli, target[target_index..], moving_a });
+            computer.A = moving_a;
             computer = computer_clean;
             moving_a += 1;
-            computer.A = moving_a;
+            soli = try computer.run_computer();
         }
     }
 
