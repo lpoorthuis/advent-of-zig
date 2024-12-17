@@ -1,16 +1,33 @@
 const std = @import("std");
 
-const input_file_name = "input.txt";
+const input_file_name = "input3.txt";
 const input_data = @embedFile(input_file_name);
 
 const Computer = struct {
-    A: u32,
-    B: u32,
-    C: u32,
+    A: u32 = 0,
+    B: u32 = 0,
+    C: u32 = 0,
 
-    opcodes: []u8,
+    opcodes: []u8 = undefined,
 
-    instruction_pointer: usize,
+    instruction_pointer: usize = 0,
+
+    result: std.ArrayList(u8),
+
+    fn solution(self: *Computer) ![]u8 {
+        var result = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer result.deinit();
+
+        // Iterate through numbers and add commas
+        for (self.result.items, 0..) |num, i| {
+            try std.fmt.format(result.writer(), "{d}", .{num});
+
+            if (i < self.result.items.len - 1) {
+                try result.append(',');
+            }
+        }
+        return result.toOwnedSlice();
+    }
 
     fn combo_operand_value(self: *Computer, combo_operand: u32) u32 {
         const value = switch (combo_operand) {
@@ -26,7 +43,7 @@ const Computer = struct {
         return value;
     }
 
-    fn run_opcode(self: *Computer, opcode: u8, operand: u32) void {
+    fn run_opcode(self: *Computer, opcode: u8, operand: u32) !void {
         //std.debug.print("opcode: {d}; operand: {d}\n", .{ opcode, operand });
         const literal = operand;
         const combo = self.combo_operand_value(operand);
@@ -62,7 +79,7 @@ const Computer = struct {
             },
             5 => {
                 // print combo % 8
-                std.debug.print("{d},", .{combo % 8});
+                try self.result.append(@as(u8, @intCast(combo % 8)));
                 self.instruction_pointer += 2;
             },
             6 => { //
@@ -79,15 +96,19 @@ const Computer = struct {
         }
     }
 
+    fn run(self: *Computer) !void {
+        const literal_operand = self.opcodes[self.instruction_pointer];
+        const combo_operand = self.opcodes[self.instruction_pointer + 1];
+        try self.run_opcode(literal_operand, combo_operand);
+    }
+
     fn run_computer(self: *Computer) !void {
         while (self.instruction_pointer < self.opcodes.len) {
             //std.debug.print("instruction_pointer: {d}\n", .{self.instruction_pointer});
-            const literal_operand = self.opcodes[self.instruction_pointer];
-            const combo_operand = self.opcodes[self.instruction_pointer + 1];
-            self.run_opcode(literal_operand, combo_operand);
+            try self.run();
             //std.debug.print("{any}\n", .{self});
         }
-        std.debug.print("\nfin\n\n", .{});
+        //std.debug.print("\nfin\n\n", .{});
     }
 };
 
@@ -133,7 +154,7 @@ fn parse_computer(input: []const u8) !Computer {
         }
         line_no += 1;
     }
-    return Computer{ .A = a, .B = b, .C = c, .opcodes = opcodes, .instruction_pointer = 0 };
+    return Computer{ .A = a, .B = b, .C = c, .opcodes = opcodes, .instruction_pointer = 0, .result = std.ArrayList(u8).init(std.heap.page_allocator) };
 }
 
 pub fn main() !void {
@@ -149,9 +170,37 @@ pub fn main() !void {
     //std.debug.print("{any}\n", .{c});
 
     std.debug.print("{s}\n\n", .{input_data});
-    var computer = try parse_computer(input_data);
-    std.debug.print("{any}\n", .{computer});
+    const computer_clean = try parse_computer(input_data);
+    var computer = computer_clean;
+    //std.debug.print("{any}\n", .{computer});
     try computer.run_computer();
-    std.debug.print("{any}\n", .{computer});
-    std.debug.print("{d}ms\n", .{timer.lap() / std.time.ns_per_ms});
+    //std.debug.print("{any}\n", .{computer});
+    const solution = try computer.solution();
+    std.debug.print("part1 {s}   {d}ms\n", .{ solution, timer.lap() / std.time.ns_per_ms });
+
+    //const target = "2,4,1,1,7,5,1,5,4,2,5,5,0,3,3,0";
+    const target = "0,3,5,4,3,0";
+    computer = computer_clean;
+    var moving_a: u32 = computer.A;
+    while (true) {
+        var soli: []u8 = undefined;
+        while (computer.instruction_pointer < computer.opcodes.len) {
+            try computer.run();
+            //soli = try computer.solution();
+            //if (!std.mem.eql(u8, soli, target[0..soli.len])) {
+            //    continue :outer;
+            //}
+        }
+
+        soli = try computer.solution();
+        if (std.mem.eql(u8, soli, target)) {
+            break;
+        } else {
+            computer = computer_clean;
+            moving_a += 1;
+            computer.A = moving_a;
+        }
+    }
+
+    std.debug.print("part2 {d}   {d}ms\n", .{ moving_a, timer.lap() / std.time.ns_per_ms });
 }
