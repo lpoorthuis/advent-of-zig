@@ -3,20 +3,43 @@ const std = @import("std");
 const file_name = "input.txt";
 const file = @embedFile(file_name);
 
-fn solve(allocator: std.mem.Allocator, remaining_pattern: []u8, towels: std.ArrayList([]u8)) !bool {
-    //std.debug.print("solve towels: {s}\n", .{remaining_pattern});
-    if (remaining_pattern.len == 0) {
-        return true;
+fn solve2(cache: *std.StringHashMap(usize), remaining_pattern: []u8, towels: std.ArrayList([]u8)) !usize {
+    if (cache.get(remaining_pattern)) |solved_count| {
+        return solved_count;
     }
+
+    if (remaining_pattern.len == 0) {
+        cache.put(remaining_pattern, 1) catch {};
+        return 1;
+    }
+
+    var solved: usize = 0;
     for (towels.items) |towel| {
-        //std.debug.print("try towel: {s}\n", .{towel});
         if (towel.len > remaining_pattern.len) {
             continue;
         }
 
         const towel_fits = std.mem.eql(u8, remaining_pattern[0..towel.len], towel);
         if (towel_fits) {
-            if (try solve(allocator, remaining_pattern[towel.len..], towels)) {
+            solved += try solve2(cache, remaining_pattern[towel.len..], towels);
+        }
+    }
+    cache.put(remaining_pattern, solved) catch {};
+    return solved;
+}
+
+fn solve(remaining_pattern: []u8, towels: std.ArrayList([]u8)) !bool {
+    if (remaining_pattern.len == 0) {
+        return true;
+    }
+    for (towels.items) |towel| {
+        if (towel.len > remaining_pattern.len) {
+            continue;
+        }
+
+        const towel_fits = std.mem.eql(u8, remaining_pattern[0..towel.len], towel);
+        if (towel_fits) {
+            if (try solve(remaining_pattern[towel.len..], towels)) {
                 return true;
             }
         }
@@ -70,10 +93,20 @@ pub fn main() !void {
 
     var solved_patterns: usize = 0;
     for (patterns.items) |pattern| {
-        if (try solve(allocator, pattern, towel_patterns)) {
-            //std.debug.print("solved: {s}\n", .{pattern});
+        if (try solve(pattern, towel_patterns)) {
             solved_patterns += 1;
         }
     }
-    std.debug.print("solved {} patterns in {d}ms\n", .{ solved_patterns, timer.lap() / std.time.ns_per_ms });
+    std.debug.print("solved1 {} patterns in {d}ms\n", .{ solved_patterns, timer.lap() / std.time.ns_per_ms });
+
+    var solved_pattern_ways: usize = 0;
+    var cache: std.StringHashMap(usize) = undefined;
+    cache = std.StringHashMap(usize).init(allocator);
+    defer cache.deinit();
+
+    for (patterns.items) |pattern| {
+        const patter_solutions: usize = try solve2(&cache, pattern, towel_patterns);
+        solved_pattern_ways += patter_solutions;
+    }
+    std.debug.print("solved2 {} patterns in {d}ms\n", .{ solved_pattern_ways, timer.lap() / std.time.ns_per_ms });
 }
